@@ -1,14 +1,6 @@
 # GitLab Maven Project
-This is gitlab maven project repository
 
-In this lab we would be doing maven project intitrgaion with gitlab. To do this lab you would need -
-
-- Gitlab Account
-- AWS EC2 Ubuntu instance (t2.micro or t2.medium)
-- One working Maven project
-- AWS ECR reposiroty
-- Sonarqube scanner
-
+To build a Maven project, run a SonarQube scan, build a Docker image, push the image to Docker Hub, and finally deploy and run the image on an Amazon EKS (Elastic Kubernetes Service) cluster via a GitLab CI/CD pipeline, you can follow these steps.
 
 ___
 
@@ -46,7 +38,7 @@ Run the sonarqube docker container >> docker run -d -p 9000:9000 sonarqube
 
 ```
 
-## Create Gitlab account 
+## Option -1 with Gitlab account 
 
 Go to https://gitlab.com/users/sign_up to create Gitlab account. 
 
@@ -71,6 +63,87 @@ Select the executor when it will prompt for >> shell
 
 To run the runner once registration >> gitlab-runner run
 
+```
+
+## Option -2 with self hosted Gitlab on VM / EC2 system
+
+1. Createa Ubuntu VM / EC2 instance and install the docker engine - run sudo apt install docker.io
+2. Run the below mentioned command to pull gitlab community edition docker image and to spinup the container 
+
+```
+docker run --detach \
+  --hostname gitlab.example.com \
+  --publish 443:443 --publish 80:80 --publish 22:22 \
+  --name gitlab \
+  --restart always \
+  --volume /srv/gitlab/config:/etc/gitlab \
+  --volume /srv/gitlab/logs:/var/log/gitlab \
+  --volume /srv/gitlab/data:/var/opt/gitlab \
+  gitlab/gitlab-ce:latest
+
+```
+
+3. Run the below mentioned command to pull gitlab runner docker image and to spinup the container
+
+```
+docker run -d --name gitlab-runner --network host \
+  --volume /srv/gitlab-runner/config:/etc/gitlab-runner \
+  gitlab/gitlab-runner:latest
+
+```
+
+4. Register gitlab runner
+
+```
+docker exec -it gitlab-runner gitlab-runner register
+
+You'll need the following information to register the runner:
+
+GitLab URL: The address of your GitLab instance (e.g., http://gitlab.example.com). >> Use http://localhost:80
+GitLab registration token: Obtain it from your GitLab project under Settings > CI/CD > Runners.
+Description: The name/description of the runner.
+Tags: Optional tags to associate with the runner.
+Executor: Choose an executor (e.g., docker).
+
+```
+
+5. Verify that the containers are running
+
+```
+sudo docker ps -a
+```
+
+6. Wait for GitLab to initialize (may take a few minutes)
+
+```
+echo "Waiting for GitLab to initialize..." sleep 60 # Adjust sleep time if needed
+```
+   
+8. Retrieve GitLab root user password
+
+```
+if [ -f "/srv/gitlab/config/initial_root_password" ]; then
+    echo "GitLab Root Login Credentials:"
+    echo "Username: root"
+    echo "Password: $(sudo cat /srv/gitlab/config/initial_root_password | grep Password | awk '{print $2}')"
+else
+    echo "Password file not found! Resetting root password..."
+    sudo docker exec -it gitlab gitlab-rails console <<EOF
+user = User.find_by_username('root')
+user.password = 'NewSecurePassword'
+user.password_confirmation = 'NewSecurePassword'
+user.save!
+exit
+EOF
+    echo "Password reset to: NewSecurePassword"
+fi
+
+```
+9. Display GitLab login URL
+
+```
+
+echo "Access GitLab at: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)/" /### Replcae the IP address from above
 ```
 
 ## Clone the Gitlab project reposiroty to upload the project 
@@ -144,43 +217,66 @@ Here we are doing 4 stage CI-CD pipelien -
 4. Upload the docker image to AWS ECR
 
 ```
-
 stages:
-    - build
-    - test
-    - sonarqube-check
-    - docker_build
+  - build
+  - sonar_scan
+  - docker_build
+  - docker_push
+  - deploy
 
-build_job:
-    stage: build
-    script:
-        - mvn clean install
+before_script:
+  - echo "Setting up Docker and AWS CLI"
+  - apk add --no-cache curl git bash python3 py3-pip
+  - pip3 install awscli
+  - aws --version
+  - echo "$AWS_ACCESS_KEY_ID" | aws configure set aws_access_key_id
+  - echo "$AWS_SECRET_ACCESS_KEY" | aws configure set aws_secret_access_key
+  - echo "$AWS_DEFAULT_REGION" | aws configure set region
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
 
-test_job:
-    stage: test  
-    script:
-        - mvn test
+# Build the Maven project
+build_maven:
+  image: maven:3.8.5-jdk-11  
+  stage: build
+  script:
+    - echo "Building Maven project"
+    - mvn clean install $MAVEN_CLI_OPTS
 
-sonarqube-check:
-  stage: sonarqube-check   
-  variables:
-    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
-    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
-  cache:
-    key: "${CI_JOB_NAME}"
-    paths:
-      - .sonar/cache
-  script: 
-    - mvn verify sonar:sonar -Dsonar.projectKey=devops8004609_springboot-maven-project_AZU88yLLk0-28RVuG-tY
-  allow_failure: true
-  only:
-    - main # or the name of your main branch
+# Run SonarQube analysis
+sonar_scan:
+  stage: sonar_scan
+  script:
+    - echo "Running SonarQube scan"
+    - mvn sonar:sonar -Dsonar.host.url=$SONARQUBE_URL -Dsonar.login=$SONARQUBE_TOKEN
 
+# Build the Docker image
 docker_build:
   stage: docker_build
   script:
-    - docker build -t target . 
-    - docker run -itd --name app-1 -p 8080:8080 target   
+    - echo "Building Docker image"
+    - docker build -t $DOCKER_USERNAME/$DOCKER_IMAGE_NAME:$CI_COMMIT_REF_NAME .
+
+# Push the Docker image to Docker Hub
+docker_push:
+  stage: docker_push
+  script:
+    - echo "Pushing Docker image to Docker Hub"
+    - docker push $DOCKER_USERNAME/$DOCKER_IMAGE_NAME:$CI_COMMIT_REF_NAME
+# Deploy the Docker image to EKS
+deploy_to_eks:
+  stage: deploy
+  script:
+    - echo "Setting up Kubernetes configuration for EKS"
+    - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+    - kubectl get svc
+    - echo "Deploying Docker image to EKS"
+    - kubectl set image deployment/$KUBERNETES_DEPLOYMENT_NAME $KUBERNETES_DEPLOYMENT_NAME=$DOCKER_USERNAME/$DOCKER_IMAGE_NAME:$CI_COMMIT_REF_NAME
+    - kubectl rollout status deployment/$KUBERNETES_DEPLOYMENT_NAME
+  only:
+    - main  # Run this job only on the main branch (adjust if needed)    
+
+
+
 ```
 
 
