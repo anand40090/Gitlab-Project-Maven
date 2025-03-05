@@ -106,6 +106,21 @@ To push the data to gitlab repository >> git push >> input username password whe
 3. Create Variable in Gitlab to call during CI-CD pipeline >>  Go to Gitlab account >>  go to project >> go to setting >> CI-CD >> Find for variables >> Expand
 4. Create 1] AWS_Access_KEY_ID 2] AWS_Default_Region 3] AWS_Secret_access_key
 
+## Create Variables in the Gitlab 
+
+Before creating the .gitlab-ci.yml, add the following variables in GitLab project settings (Settings > CI / CD > Variables):
+
+1. SONARQUBE_URL: The URL of your SonarQube instance (e.g., http://sonarqube.local).
+2. SONARQUBE_TOKEN: Your SonarQube token.
+3. DOCKER_REGISTRY: The Docker registry (e.g., docker.io).
+4. DOCKER_USERNAME: Your Docker Hub username.
+5. DOCKER_PASSWORD: Your Docker Hub password or access token.
+6. AWS_ACCESS_KEY_ID: AWS Access Key ID for EKS access.
+7. AWS_SECRET_ACCESS_KEY: AWS Secret Access Key for EKS access.
+8. AWS_DEFAULT_REGION: AWS region where your EKS cluster is hosted (e.g., us-east-1).
+9. ECR_REPO_NAME: The ECR repository name where the image will be pushed (optional if pushing to DockerHub).
+10. KUBECONFIG: The kubeconfig file to access the EKS cluster (can be configured using aws eks update-kubeconfig).
+
 ## Create .gitlab-ci.yml file in the gitlab project reposiroty to run the CI-CD pipeline 
 
 Got to gitlab project >> create the .gitlab-ci-.yml file 
@@ -158,3 +173,5 @@ docker_build:
     - docker build -t target . 
     - docker run -itd --name app-1 -p 8080:8080 target   
 ```
+
+
