@@ -9,7 +9,16 @@ In this lab we would be doing maven project intitrgaion with gitlab. To do this 
 - AWS ECR reposiroty
 - Sonarqube scanner
 
+
 ___
+
+# Prerequisites
+
+1. GitLab Project: You need a GitLab project where the Maven project code resides.
+2. SonarQube: You need to have SonarQube set up and a SonarQube token (can be saved as GitLab CI/CD variables).
+3. Docker Hub Account: Ensure you have Docker Hub credentials stored in GitLab CI/CD variables.
+4. EKS Cluster: Ensure you have an Amazon EKS cluster up and running, and you can connect to it using kubectl.
+5. AWS IAM: Ensure your GitLab CI runner has appropriate permissions to interact with AWS EKS (via IAM roles and policies).
 
 ## First create EC2 instance and install the required software on it - 
 
